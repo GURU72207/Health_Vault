@@ -1,9 +1,20 @@
+import { handleMockRequest } from './mockEngine';
+
 const API_BASE = '/api';
 
+const isStaticHosted = typeof window !== 'undefined' && 
+  window.location.hostname !== 'localhost' && 
+  window.location.hostname !== '127.0.0.1';
+
 /**
- * Fetch wrapper with automatic JWT token attachment and error extraction.
+ * Fetch wrapper with automatic fallback for GitHub Pages live preview.
  */
 export async function apiRequest(endpoint, options = {}) {
+  // If hosted on GitHub Pages or static web without local Node server, use mock engine
+  if (isStaticHosted) {
+    return handleMockRequest(endpoint, options);
+  }
+
   const token = localStorage.getItem('phr_token');
   const headers = { ...options.headers };
 
@@ -11,33 +22,41 @@ export async function apiRequest(endpoint, options = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // If not FormData, default to application/json
   if (!(options.body instanceof FormData) && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers
-  });
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers
+    });
 
-  const contentType = response.headers.get('content-type');
-  let data = null;
+    const contentType = response.headers.get('content-type');
+    let data = null;
 
-  if (contentType && contentType.includes('application/json')) {
-    data = await response.json();
-  } else {
-    data = await response.text();
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    if (!response.ok) {
+      const error = new Error((data && data.error) || response.statusText || 'API Request failed');
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
+    return data;
+  } catch (err) {
+    // If local backend is down or unreachable, seamlessly fallback so UI never breaks
+    if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
+      console.warn('[FALLBACK] Express backend unreachable, falling back to client-side engine.');
+      return handleMockRequest(endpoint, options);
+    }
+    throw err;
   }
-
-  if (!response.ok) {
-    const error = new Error((data && data.error) || response.statusText || 'API Request failed');
-    error.status = response.status;
-    error.data = data;
-    throw error;
-  }
-
-  return data;
 }
 
 export const api = {
@@ -62,7 +81,52 @@ export const api = {
   // Documents
   getDocuments: (patientId) => apiRequest(`/documents${patientId ? `?patient_id=${patientId}` : ''}`),
   uploadDocument: (formData) => apiRequest('/documents', { method: 'POST', body: formData }),
-  getDocumentDownloadUrl: (id) => `${API_BASE}/documents/${id}/download`,
+  acknowledgeDocument: (id) => apiRequest(`/documents/${id}/acknowledge`, { method: 'POST' }),
+  getDocumentDownloadUrl: (id) => {
+    const token = localStorage.getItem('phr_token');
+    return `${API_BASE}/documents/${id}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  },
+  downloadDocument: async (id, filename) => {
+    if (isStaticHosted) {
+      // Create mock download for static environment
+      const blob = new Blob([`Synthetic Health Document - URAN 2026 HT-05\nID: ${id}\nFilename: ${filename}`], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'document.pdf';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      return;
+    }
+
+    const token = localStorage.getItem('phr_token');
+    const response = await fetch(`${API_BASE}/documents/${id}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+
+    if (!response.ok) {
+      let errorMsg = 'Failed to download document';
+      try {
+        const errJson = await response.json();
+        errorMsg = errJson.error || errorMsg;
+      } catch (_) {}
+      const err = new Error(errorMsg);
+      err.status = response.status;
+      throw err;
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'document.pdf';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
 
   // Access & Consent
   getGrants: () => apiRequest('/access/grants'),

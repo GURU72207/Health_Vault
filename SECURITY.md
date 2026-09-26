@@ -57,8 +57,10 @@ Access control is strictly enforced on the server within `rbacMiddleware.js`. Fr
 | `/api/patients/:id` | `PUT` | ✅ Own record only | ❌ 403 Forbidden | ❌ 403 Forbidden | ✅ Allowed |
 | `/api/visits` | `GET` | ✅ Own records | ✅ Allowed | ❌ **403 FORBIDDEN** (Logged DENIED) | ✅ Audit Read |
 | `/api/visits` | `POST` | ✅ Own record | ✅ Allowed | ❌ **403 FORBIDDEN** (Logged DENIED) | ❌ Forbidden |
+| `/api/documents` | `GET` | ✅ Own documents | ✅ Allowed | ❌ **403 FORBIDDEN** (Logged DENIED) | ✅ Audit Read |
 | `/api/documents` | `POST` | ✅ Own record | ✅ Allowed | ❌ **403 FORBIDDEN** (Logged DENIED) | ❌ Forbidden |
-| `/api/documents/:id/download` | `GET` | ✅ Own document | ✅ Allowed | ❌ **403 FORBIDDEN** (Logged DENIED) | ✅ Audit Read |
+| `/api/documents/:id/download` | `GET` | ✅ Own document | ✅ Allowed (if verified/acknowledged)<br>❌ **403 FORBIDDEN** if flagged & unacknowledged | ❌ **403 FORBIDDEN** (Logged DENIED) | ✅ Audit Read |
+| `/api/documents/:id/acknowledge` | `POST` | ✅ Own flagged document | ❌ 403 Forbidden | ❌ 403 Forbidden | ❌ Forbidden |
 | `/api/access/grant` | `POST` | ✅ Allowed | ❌ 403 Forbidden | ❌ 403 Forbidden | ❌ Forbidden |
 | `/api/access/revoke` | `POST` | ✅ Allowed | ❌ 403 Forbidden | ❌ 403 Forbidden | ❌ Forbidden |
 | `/api/followups/upcoming` | `GET` | ✅ Own follow-ups | ✅ Granted patients | ❌ Excluded from list | ✅ System Read |
@@ -94,3 +96,18 @@ Access control is strictly enforced on the server within `rbacMiddleware.js`. Fr
 | **Information Disclosure** | Database file leaked or unauthorized provider browses unshared records. | Consent-gating checks `access_grants` table on every call. Sensitive fields are encrypted with AES-256 at rest. |
 | **Denial of Service** | Credential brute-forcing or excessive automated requests. | `express-rate-limit` throttles authentication attempts to 100 requests per 15 minutes. |
 | **Elevation of Privilege** | Normal patient sends a crafted request with provider or admin role. | JWT tokens are verified against backend secret; role is checked against database user entity on protected routes. |
+
+---
+
+## 🤖 6. AI-Assisted Document Ingestion: Threat Model & Privacy Safeguards
+
+### 6.1 Attack Vectors & Safeguard Controls
+
+| Attack Vector | Threat Scenario | Mitigation Architecture |
+| :--- | :--- | :--- |
+| **Header Spoofing / Extension Disguise** | Malicious actor disguises an executable or script with a `.pdf` extension. | **Binary Magic-Byte Inspection**: `validateFileTypeAndMagicBytes` directly reads the first 16 bytes on disk (`%PDF-`, JPEG SOI, PNG header, ZIP/DOCX header). Discrepancies are immediately rejected (`400 INVALID_FILE_SIGNATURE`) and logged to audit trail. |
+| **Model Inversion / PII Leakage in Logs** | Extracted clinical tokens from OCR/PDF extraction leak into system logs or stdout. | **Strict In-Memory Token Extraction**: Extracted tokens are analyzed strictly in ephemeral memory and discarded. Audit logs record only high-level classifier verdict (`verification_status`, `confidence`, and redacted reason codes); raw extracted text is never logged. |
+| **Document Content Discrepancy** | User uploads an irrelevant or deceptive document (e.g., restaurant invoice claimed as a Lab Report). | **Clinical Ontology Classifier**: Matches document tokens against domain-specific clinical vocabulary (e.g. glucose, HbA1c, BP, creatinine). Suspicious non-clinical tokens trigger `flagged` status. |
+| **Unauthorized Provider Access to Flagged PHR** | Provider downloads a flagged document containing questionable or unverified data without patient review. | **Consent & Patient Acknowledgment Gating**: Providers are blocked from downloading `flagged` documents (`403 PATIENT_ACKNOWLEDGMENT_REQUIRED`) until the patient explicitly reviews and acknowledges the document. |
+| **AI Subsystem Failure / Outage** | AI classifier service fails, crashes, or times out during verification pass. | **Fail-Safe Default to 'Pending'**: If verification encounters an exception, status safely defaults to `pending` (never silently `verified`), ensuring unverified documents cannot bypass security controls. |
+

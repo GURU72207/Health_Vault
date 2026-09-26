@@ -11,7 +11,7 @@ async function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.startsWith('Bearer ')
     ? authHeader.split(' ')[1]
-    : null;
+    : (req.query && req.query.token ? req.query.token : null);
 
   if (!token) {
     await logAuditEvent({

@@ -352,10 +352,22 @@ export default function RecordsView() {
                 <div className="space-y-1">
                   {selectedVisit.documents.map(doc => (
                     <div key={doc.id} className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-xs">
-                      <span className="font-mono text-slate-300">{doc.filename}</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono text-slate-300">{doc.filename}</span>
+                        {doc.verification_status === 'verified' && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                            Verified
+                          </span>
+                        )}
+                        {doc.verification_status === 'flagged' && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            Flagged for Review
+                          </span>
+                        )}
+                      </div>
                       <a
                         href={api.getDocumentDownloadUrl(doc.id)}
-                        className="text-emerald-400 hover:underline"
+                        className="text-emerald-400 hover:underline font-semibold"
                         download
                       >
                         Download

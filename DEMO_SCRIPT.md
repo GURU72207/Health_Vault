@@ -27,9 +27,17 @@ Before beginning, click **"Reset Demo DB"** in the top navigation bar to reset t
    - Scheduled Follow-Up Date: Select a date 14 days in the future.
    - Click **"Save & Encrypt Record"**.
 4. Navigate to the **Documents** tab.
-   - In the upload form, choose any PDF, image, or text file.
-   - Click **"Upload File"**.
-   - *Observation:* The file appears in the table with its MIME type, formatted size, and cryptographic **SHA-256 checksum**. The binary content is not written to application logs.
+   - Select **Claimed Document Type**: `Laboratory / Blood Test Report`.
+   - Choose a medical PDF/image and click **"Upload & Verify Document"**.
+   - *Observation:* The server inspects binary magic bytes, executes the AI clinical ontology classifier, and presents an immediate **AI Content Verification Report** modal showing:
+     - AI Classification Verdict: `Verified` (with ~95% confidence).
+     - Indexed SHA-256 integrity checksum.
+   - Now test discrepancy detection: Upload a non-clinical file (e.g. invoice/receipt or receipt PDF) or select a mismatched category.
+     - *Observation:* The AI engine flags the document: `Flagged for Review` with discrepancy details.
+     - The document enters privacy-gated mode (`Pending Patient Approval`).
+     - Switch to **Dr. Priya Sharma**: Dr. Priya is **blocked from downloading** this flagged document (`HTTP 403 PATIENT_ACKNOWLEDGMENT_REQUIRED`) and a `DENIED` audit log is recorded!
+     - Switch back to **John Doe**: Click **"Approve Now"** on the flagged document to acknowledge it.
+     - Switch back to **Dr. Priya Sharma**: Download is now permitted and streams successfully (`ALLOWED`).
 
 ---
 
@@ -115,4 +123,5 @@ Before beginning, click **"Reset Demo DB"** in the top navigation bar to reset t
 | **AES-256-GCM Encryption** | Authenticated cipher with random 96-bit IV, 128-bit tag, and SHA-256 derived key. | `backend/src/services/cryptoService.js` (`encrypt`, `decrypt`) |
 | **Immutable Audit Trail** | Append-only SQLite table with query segregation by role. | `backend/src/services/auditService.js` (`logAuditEvent`) |
 | **Follow-Up Reminders** | Dynamic days-remaining calculation and in-app reminder banner. | `backend/src/routes/followupRoutes.js` |
-| **Document Metadata** | Ingests metadata + SHA-256 hash without exposing file blobs in logs. | `backend/src/routes/documentRoutes.js` |
+| **Document Metadata & SHA-256** | Ingests metadata + SHA-256 hash without exposing file blobs in logs. | `backend/src/routes/documentRoutes.js` |
+| **AI Document Verification & Gating** | Binary magic-byte validation, NLP ontology classification, and provider download gating for flagged unacknowledged records. | `backend/src/services/aiVerificationService.js` (`validateFileTypeAndMagicBytes`, `verifyDocument`) |

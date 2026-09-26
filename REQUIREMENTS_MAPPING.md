@@ -33,7 +33,11 @@ This document establishes an explicit, sentence-by-sentence mapping between the 
 | **Search/filter records by date, type, or provider** | `backend/src/routes/visitRoutes.js`<br/>`frontend/src/views/RecordsView.jsx` | `GET /api/visits?record_type=&start_date=&end_date=&search=` | SQL and domain filters for `record_type`, `start_date`, `end_date`, `provider_id`, and text search. |
 | **Encryption-at-rest: Encrypt sensitive fields with AES-256; key from env var** | `backend/src/services/cryptoService.js`<br/>`backend/src/config/index.js`<br/>`backend/.env` | `encrypt`, `decrypt`, `DERIVED_KEY` | AES-256-GCM authenticated cipher with 96-bit random IV, 128-bit Auth Tag. Key derived from `AES_256_SECRET_KEY` env var. |
 | **No hardcoded secrets or logged keys** | `backend/src/config/index.js`<br/>`backend/src/services/cryptoService.js` | `config.aesKey`, `redactPII` | Key loaded dynamically via `dotenv`. Scanned and stripped from all log outputs. |
-| **Basic input validation / rate limiting** | `backend/src/routes/authRoutes.js`<br/>`backend/src/routes/documentRoutes.js` | `express-rate-limit`, `upload.limits` | 100 requests / 15 min on auth routes. Max 10MB document size limit with safe MIME-type whitelist. |
+| **AI-Verified Document Upload: Binary magic byte inspection & validation** | `backend/src/services/aiVerificationService.js`<br/>`backend/src/routes/documentRoutes.js` | `validateFileTypeAndMagicBytes`, `POST /api/documents` | Inspects binary magic headers (`%PDF-`, JPEG, PNG, ZIP/DOCX). Rejects spoofed files with `400 INVALID_FILE_SIGNATURE`. |
+| **AI-Verified Document Upload: Server-side AI clinical ontology verification** | `backend/src/services/aiVerificationService.js`<br/>`backend/src/routes/documentRoutes.js` | `verifyDocument`, `POST /api/documents` | Extracts printable tokens without logging PII. Matches tokens against clinical lexicon; flags discrepancies with confidence and redacted reason codes. |
+| **AI-Verified Document Upload: Secure Object Storage & Metadata Schema** | `backend/src/database/db.js`<br/>`backend/src/routes/documentRoutes.js` | `documents` table, `POST /api/documents` | Blob stored in `data/uploads/` with UUID filename. Metadata stored in DB: `claimed_type`, `verification_status`, `ai_confidence`, `flagged_reasons`, `patient_acknowledged`. |
+| **Download Flow: Consent RBAC & Flagged Document Gating** | `backend/src/routes/documentRoutes.js`<br/>`backend/src/services/consentService.js` | `GET /api/documents/:id/download` | Provider download strictly blocked with `403 PATIENT_ACKNOWLEDGMENT_REQUIRED` if document is flagged and not acknowledged by patient. Denied and allowed downloads logged to `audit_logs`. |
+| **Patient Document Acknowledgment** | `backend/src/routes/documentRoutes.js`<br/>`frontend/src/views/DocumentsView.jsx` | `POST /api/documents/:id/acknowledge` | Patient reviews discrepancy reasons and acknowledges flagged document to clear it for provider access. |
 
 ---
 
@@ -54,5 +58,10 @@ Run `npm test` inside `backend/` to execute the automated verification suite (`t
 | `Logging an unauthorized access attempt records DENIED result in audit_logs` | Audit trail of blocked attempts | ✅ PASSED |
 | `Patient audit query returns all provider interactions on their data` | Patient audit transparency | ✅ PASSED |
 | `redactPII utility strips passwords, medical notes, and tokens from logging payloads` | Privacy preservation in logs | ✅ PASSED |
+| `Magic byte validation strictly enforces binary header signatures` | Anti-spoofing binary header validation | ✅ PASSED |
+| `AI document verification marks matching clinical lab report as VERIFIED` | NLP ontology verification (verified status) | ✅ PASSED |
+| `AI document verification marks non-medical document as FLAGGED with discrepancy reasons` | Discrepancy detection & reason logging | ✅ PASSED |
+| `Provider download gating: unacknowledged flagged document blocks provider download` | Privacy gating & patient acknowledgment | ✅ PASSED |
 
-**Final Verification Result:** `11 PASSED, 0 FAILED` (100% compliance rate).
+**Final Verification Result:** `15 PASSED, 0 FAILED` (100% compliance rate across all 6 test sections).
+

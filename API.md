@@ -172,27 +172,129 @@ Encrypted with AES-256-GCM. Requires patient ownership or active provider consen
 
 ---
 
-## 4. Medical Document Upload & Ingestion
+## 4. AI-Verified Medical Document Repository & Download Gating
 
-### 4.1 Multipart File Upload
+### 4.1 AI-Verified Multipart Document Upload
 `POST /api/documents`
 
 `Content-Type: multipart/form-data`  
-Payload: `document: <binary file>`, `patient_id: <uuid>`, `visit_id: <uuid>` (optional).
+**Parameters:**
+- `document`: Binary file (PDF, JPG, PNG, DOCX; max 10MB configurable via `MAX_FILE_SIZE_MB`).
+- `claimed_type`: Category string (`Lab Report`, `Prescription`, `Visit Note`, `Radiology / Imaging`).
+- `patient_id`: Target patient UUID (optional for patients, defaults to authenticated user ID; required for providers with active consent).
+- `visit_id`: Associated encounter UUID (optional).
 
-**Response (`201 Created`):**
+**Security Validation & AI Ingestion Workflow:**
+1. Validates MIME type, file extension, and binary magic bytes (`%PDF-`, JPEG SOI, PNG header, ZIP/DOCX header). Spoofed file headers are rejected (`400 INVALID_FILE_SIGNATURE`) and logged to audit trail.
+2. Runs server-side AI clinical ontology verification. Extracts printable tokens (never persists PII to logs), compares against clinical ontology dictionary, and assigns a verification status:
+   - `verified`: Document contains matching clinical terminology (e.g. glucose, HbA1c, BP).
+   - `flagged`: Document contains non-clinical keywords (e.g. invoice, receipt) or lacks clinical tokens. Held in restricted status until patient acknowledges.
+   - `pending`: Fallback status if verification service encounters an operational timeout/error.
+3. Computes SHA-256 cryptographic checksum.
+4. Stores binary blob in object storage (`data/uploads/`) with sanitized UUID filename; persists only metadata in SQLite.
+5. Records append-only audit event (`UPLOAD_DOCUMENT`) with redacted verdict metrics.
+
+**Successful Response (`201 Created`):**
 ```json
 {
-  "message": "Document uploaded and indexed successfully",
+  "message": "Document uploaded and verified successfully",
   "document": {
     "id": "f8a1290b-1111-4000-8000-000000000001",
-    "filename": "echocardiogram_report.pdf",
+    "visit_id": null,
+    "patient_id": "11111111-1111-4000-8000-000000000001",
+    "filename": "metabolic_panel_results.pdf",
     "file_type": "application/pdf",
     "size": 145920,
     "checksum_sha256": "8f4a10bc39e102834b7fae2981...",
     "uploaded_by": "11111111-1111-4000-8000-000000000001",
-    "uploaded_at": "2026-09-26T04:15:00.000Z"
+    "uploaded_at": "2026-09-26T04:15:00.000Z",
+    "claimed_type": "Lab Report",
+    "verification_status": "verified",
+    "ai_confidence": 0.95,
+    "flagged_reasons": [],
+    "patient_acknowledged": 1
+  },
+  "ai_verdict": {
+    "matches_claimed_type": true,
+    "confidence": 0.95,
+    "status": "verified",
+    "flagged_reasons": []
   }
+}
+```
+
+---
+
+### 4.2 List Medical Documents
+`GET /api/documents?patient_id=:patient_id`
+
+Retrieves indexed documents for a patient. Gated by RBAC: patients can only query own records; providers require an active consent grant.
+
+**Response (`200 OK`):**
+```json
+{
+  "documents": [
+    {
+      "id": "f8a1290b-1111-4000-8000-000000000001",
+      "visit_id": null,
+      "patient_id": "11111111-1111-4000-8000-000000000001",
+      "filename": "metabolic_panel_results.pdf",
+      "file_type": "application/pdf",
+      "size": 145920,
+      "checksum_sha256": "8f4a10bc39e102834b7fae2981...",
+      "uploaded_by": "11111111-1111-4000-8000-000000000001",
+      "uploaded_at": "2026-09-26T04:15:00.000Z",
+      "claimed_type": "Lab Report",
+      "verification_status": "verified",
+      "ai_confidence": 0.95,
+      "flagged_reasons": [],
+      "patient_acknowledged": 1,
+      "uploader_name": "John Doe"
+    }
+  ]
+}
+```
+
+---
+
+### 4.3 Secure Document Download & Flagged Document Gating
+`GET /api/documents/:id/download`
+
+Streams raw document bytes. Strictly enforces multi-layer security policies:
+1. **Ownership / Consent Check**:
+   - Patient role: must own the document (`user.id === doc.patient_id`).
+   - Provider role: must have active consent grant (`hasActiveConsent`).
+2. **AI Flagged Gating Check**:
+   - If document is `flagged` and `patient_acknowledged !== 1`, provider download is strictly blocked (`403 Forbidden`).
+3. Audit event is immutably logged for every download attempt (`DOWNLOAD_DOCUMENT` with result `ALLOWED` or `DENIED`).
+
+**Response (`200 OK`):**
+- Binary stream with headers: `Content-Disposition: attachment; filename="..."`, `Content-Type: ...`.
+
+**Flagged Gating Response (`403 Forbidden`):**
+```json
+{
+  "error": "Document flagged by AI verification and requires patient acknowledgment before provider access.",
+  "code": "PATIENT_ACKNOWLEDGMENT_REQUIRED",
+  "verification_status": "flagged"
+}
+```
+
+---
+
+### 4.4 Patient Acknowledgment for Flagged Documents
+`POST /api/documents/:id/acknowledge`
+
+Allows a patient to review AI discrepancy warnings and acknowledge/approve a flagged document, clearing it for provider access.
+
+**Authorization**: Patient role only; user ID must match `doc.patient_id`.
+
+**Response (`200 OK`):**
+```json
+{
+  "message": "Document successfully acknowledged by patient. Available for provider review.",
+  "document_id": "f8a1290b-1111-4000-8000-000000000001",
+  "patient_acknowledged": 1
 }
 ```
 

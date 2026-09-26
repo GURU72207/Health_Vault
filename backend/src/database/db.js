@@ -98,6 +98,11 @@ function initSchema(db) {
       checksum_sha256 TEXT,
       uploaded_by TEXT NOT NULL,
       uploaded_at TEXT NOT NULL,
+      claimed_type TEXT DEFAULT 'Lab Report',
+      verification_status TEXT DEFAULT 'pending' CHECK(verification_status IN ('pending', 'verified', 'flagged')),
+      ai_confidence REAL DEFAULT 0.0,
+      flagged_reasons TEXT DEFAULT '[]',
+      patient_acknowledged INTEGER DEFAULT 1,
       FOREIGN KEY (visit_id) REFERENCES visits(id) ON DELETE SET NULL,
       FOREIGN KEY (patient_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (uploaded_by) REFERENCES users(id)
@@ -140,6 +145,20 @@ function initSchema(db) {
   `;
 
   db.run(schemaSql);
+
+  // In-place schema migrations for existing databases
+  const migrations = [
+    `ALTER TABLE documents ADD COLUMN claimed_type TEXT DEFAULT 'Lab Report'`,
+    `ALTER TABLE documents ADD COLUMN verification_status TEXT DEFAULT 'pending'`,
+    `ALTER TABLE documents ADD COLUMN ai_confidence REAL DEFAULT 0.0`,
+    `ALTER TABLE documents ADD COLUMN flagged_reasons TEXT DEFAULT '[]'`,
+    `ALTER TABLE documents ADD COLUMN patient_acknowledged INTEGER DEFAULT 1`
+  ];
+  for (const sql of migrations) {
+    try {
+      db.run(sql);
+    } catch (_) {}
+  }
 }
 
 // Helper query function that returns array of objects with named columns

@@ -206,8 +206,10 @@ startxref
 
   const docId = 'cccccccc-1111-4000-8000-000000000001';
   await db.run(
-    `INSERT INTO documents (id, visit_id, patient_id, filename, file_type, size, storage_path, checksum_sha256, uploaded_by, uploaded_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO documents (
+      id, visit_id, patient_id, filename, file_type, size, storage_path, checksum_sha256,
+      uploaded_by, uploaded_at, claimed_type, verification_status, ai_confidence, flagged_reasons, patient_acknowledged
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       docId,
       visitJohn1,
@@ -218,7 +220,12 @@ startxref
       sampleDocDiskName,
       docChecksum,
       PERSONAS.providerPriya.id,
-      now
+      now,
+      'Lab Report',
+      'verified',
+      0.98,
+      '[]',
+      1
     ]
   );
 
