@@ -1,0 +1,26 @@
+{
+  "name": "uran-2026-ht05-secure-phr-platform",
+  "version": "1.0.0",
+  "description": "Secure Digital Personal Health Record & Follow-Up Management Platform with Privacy-Aware Data Access (URAN 2026 HT-05)",
+  "scripts": {
+    "setup": "npm --prefix backend install && npm --prefix frontend install && npm run seed",
+    "seed": "npm --prefix backend run seed",
+    "test": "npm --prefix backend test",
+    "server": "npm --prefix backend start",
+    "client": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev"
+  },
+  "keywords": [
+    "healthtech",
+    "phr",
+    "uran-2026",
+    "ht-05",
+    "aes-256",
+    "audit-log",
+    "consent-gated",
+    "rbac"
+  ],
+  "author": "URAN 2026 Hackathon Team",
+  "license": "MIT"
+}
